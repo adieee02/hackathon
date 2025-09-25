@@ -85,13 +85,13 @@
         <main id="main-content">
             <section id="features-section" class="flex justify-center items-center space-x-4 mb-8">
                 <button id="daily-bonus-btn" class="btn btn-secondary flex-1 max-w-xs">Claim Daily Bonus</button>
-                <button id="leaderboard-btn" class="btn btn-primary flex-1 max-w-xs">View Leaderboard</button>
+                <button id="leaderboard-btn" class="btn btn-primary flex-1 max-w-xs">View High Scores</button>
             </section>
             
             <section id="leaderboard-view" class="hidden">
-                <h2 class="text-3xl font-bold text-center mb-8 text-[#859900]">Leaderboard</h2>
+                <h2 class="text-3xl font-bold text-center mb-8 text-[#859900]">High Scores</h2>
                 <div id="leaderboard-list" class="bg-white p-6 rounded-lg shadow-md">
-                    <p class="text-center text-[#586E75]">Loading leaderboard...</p>
+                    <p class="text-center text-[#586E75]">Loading scores...</p>
                 </div>
                 <button id="back-from-leaderboard" class="btn btn-secondary mt-4">Back to Grades</button>
             </section>
@@ -176,43 +176,9 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, query, getDocs, onSnapshot, orderBy, limit, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        (async () => {
-            setLogLevel('debug');
-
-            // --- DEPLOYMENT FIX 1: PASTE YOUR FIREBASE CONFIG HERE ---
-            // When deploying to a static host like GitHub Pages, the environment variables
-            // are not available. You need to paste your actual Firebase config object here.
-            // You can get this from your Firebase project settings:
-            // Go to Project Settings > General > Your apps > Web app > Firebase SDK snippet > Config
-            const firebaseConfig = {
-                apiKey: "YOUR_API_KEY",
-                authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-                projectId: "YOUR_PROJECT_ID",
-                storageBucket: "YOUR_PROJECT_ID.appspot.com",
-                messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-                appId: "YOUR_APP_ID",
-                measurementId: "YOUR_MEASUREMENT_ID"
-            };
-
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'learnsphere-public-app';
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
-            
-            // This check prevents the app from crashing if the config is not filled out.
-            if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-                console.error("Firebase config is not set. Please update learnsphere.html with your project's configuration.");
-                document.body.innerHTML = `<div class="text-center p-8 text-red-500 font-bold text-2xl">Firebase is not configured. Please follow the deployment instructions.</div>`;
-                return; // <-- FIX: Stop script execution if the config is invalid
-            }
-            
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
-
+        // --- NOTE: This app is now backend-less. All data is saved in your browser's local storage. ---
+        
+        document.addEventListener('DOMContentLoaded', () => {
             const gradeSelection = document.getElementById('grade-selection');
             const gameSelection = document.getElementById('game-selection');
             const gameModal = document.getElementById('game-modal');
@@ -229,124 +195,84 @@
             let userId;
             let currentGrade;
             let currentSubject;
-            let score = 0;
+            let sessionScore = 0;
             let currentLevel = 1;
             let gameTimer;
+            let totalScore = 0;
             
-            function getPrivateDataCollection(collectionName) {
-                return collection(db, `artifacts/${appId}/users/${userId}`, collectionName);
-            }
-            
-            function getPublicDataCollection(collectionName) {
-                return collection(db, `artifacts/${appId}/public/data`, collectionName);
-            }
-            
-            async function signIn() {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) {
-                    console.error("Authentication failed:", error);
-                    userInfoEl.textContent = `Authentication Failed. Check API key.`;
+            function setupUser() {
+                let storedUserId = localStorage.getItem('learnSphereUserId');
+                if (!storedUserId) {
+                    storedUserId = 'user-' + crypto.randomUUID().split('-')[0];
+                    localStorage.setItem('learnSphereUserId', storedUserId);
                 }
-            }
-            
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    userInfoEl.textContent = `User ID: ${userId}`;
-                    checkDailyBonus();
-                } else {
-                    userInfoEl.textContent = `User ID: Not authenticated`;
-                }
-            });
-            
-            await signIn();
+                userId = storedUserId;
+                userInfoEl.textContent = `User ID: ${userId}`;
 
-            async function getProgress() {
-                if (!userId) return { levels: {} };
-                const progressDocRef = doc(getPrivateDataCollection('app_data'), 'progress');
-                const progressSnap = await getDoc(progressDocRef);
-                if (progressSnap.exists()) {
-                    return progressSnap.data();
-                }
-                return { levels: {} };
+                totalScore = parseInt(localStorage.getItem('learnSphereTotalScore') || '0', 10);
             }
             
-            async function updateProgress(subject, level) {
-                if (!userId) return;
-                const progressDocRef = doc(getPrivateDataCollection('app_data'), 'progress');
-                const progressData = await getProgress();
-                progressData.levels[`${currentGrade}_${subject}`] = level;
-                await setDoc(progressDocRef, progressData, { merge: true });
+            function getProgress() {
+                const progress = localStorage.getItem('learnSphereProgress');
+                return progress ? JSON.parse(progress) : { levels: {} };
             }
             
-            async function checkDailyBonus() {
-                if (!userId) return;
-                const bonusDocRef = doc(getPrivateDataCollection('app_data'), 'dailyBonus');
-                const bonusSnap = await getDoc(bonusDocRef);
+            function updateProgress(subject, level) {
+                const progress = getProgress();
+                progress.levels[`${currentGrade}_${subject}`] = level;
+                localStorage.setItem('learnSphereProgress', JSON.stringify(progress));
+            }
+            
+            function checkDailyBonus() {
+                const lastClaim = localStorage.getItem('learnSphereBonusLastClaim');
                 const today = new Date().toDateString();
                 
-                if (bonusSnap.exists()) {
-                    const lastClaim = bonusSnap.data().lastClaim;
-                    if (lastClaim === today) {
-                        dailyBonusBtn.textContent = 'Bonus Claimed Today!';
-                        dailyBonusBtn.disabled = true;
-                    } else {
-                        dailyBonusBtn.textContent = 'Claim Daily Bonus!';
-                        dailyBonusBtn.disabled = false;
-                    }
+                if (lastClaim === today) {
+                    dailyBonusBtn.textContent = 'Bonus Claimed Today!';
+                    dailyBonusBtn.disabled = true;
                 } else {
                     dailyBonusBtn.textContent = 'Claim Daily Bonus!';
                     dailyBonusBtn.disabled = false;
                 }
             }
             
-            async function claimDailyBonus() {
-                if (!userId) return;
-                const bonusDocRef = doc(getPrivateDataCollection('app_data'), 'dailyBonus');
-                await setDoc(bonusDocRef, { lastClaim: new Date().toDateString() });
-                score += 10;
+            function claimDailyBonus() {
+                const today = new Date().toDateString();
+                localStorage.setItem('learnSphereBonusLastClaim', today);
+                totalScore += 10;
+                localStorage.setItem('learnSphereTotalScore', totalScore);
                 dailyBonusBtn.textContent = 'Bonus Claimed Today!';
                 dailyBonusBtn.disabled = true;
-            }
-
-            async function updateLeaderboard(newScore) {
-                if (!userId) return;
-                const leaderboardRef = getPublicDataCollection('leaderboard');
-                await setDoc(doc(leaderboardRef, userId), {
-                    userId: userId,
-                    score: newScore,
-                    lastUpdated: new Date()
-                });
+                alert('You received 10 bonus points!');
             }
             
-            async function fetchLeaderboard() {
-                leaderboardList.innerHTML = '<p class="text-center text-[#586E75]">Loading leaderboard...</p>';
-                const leaderboardRef = getPublicDataCollection('leaderboard');
-                const q = query(leaderboardRef, orderBy('score', 'desc'), limit(10));
-                const querySnapshot = await getDocs(q);
+            function updateHighScore() {
+                totalScore += sessionScore;
+                localStorage.setItem('learnSphereTotalScore', totalScore);
+            }
+            
+            function showHighScores() {
+                leaderboardList.innerHTML = '<p class="text-center text-[#586E75]">Loading scores...</p>';
                 
-                if (querySnapshot.empty) {
-                    leaderboardList.innerHTML = '<p class="text-center text-[#586E75]">No scores yet. Be the first!</p>';
-                    return;
-                }
-                
+                const highScores = [
+                    { name: userId + ' (You)', score: totalScore },
+                    { name: 'bot-gamer-1', score: Math.floor(Math.random() * 50) + 20 },
+                    { name: 'bot-gamer-2', score: Math.floor(Math.random() * 100) + 40 },
+                    { name: 'bot-gamer-3', score: Math.floor(Math.random() * 30) + 10 },
+                    { name: 'legend-player', score: Math.floor(Math.random() * 150) + 50 },
+                ];
+
+                highScores.sort((a, b) => b.score - a.score);
+
                 let listHtml = `<ol class="list-decimal list-inside space-y-2">`;
-                querySnapshot.forEach((doc, index) => {
-                    const data = doc.data();
-                    const userText = data.userId.substring(0, 8) + '...';
-                    const isCurrentUser = data.userId === userId;
-                    listHtml += `<li class="${isCurrentUser ? 'font-bold text-[#CB4B16]' : ''}">${userText}: ${data.score}</li>`;
+                highScores.forEach(entry => {
+                    const isCurrentUser = entry.name.includes('(You)');
+                    listHtml += `<li class="${isCurrentUser ? 'font-bold text-[#CB4B16]' : ''}">${entry.name}: ${entry.score}</li>`;
                 });
                 listHtml += `</ol>`;
                 leaderboardList.innerHTML = listHtml;
             }
             
-            // Corrected and expanded game data
             const games = {
                 'class6': {
                     math: {
@@ -355,9 +281,9 @@
                         generateQuestion: (difficulty) => {
                             let num1, num2, op;
                             if (difficulty === 'easy') {
-                                num1 = Math.floor(Math.random() * 50) + 10;
-                                num2 = Math.floor(Math.random() * 20) + 5;
-                                op = '+';
+                                 num1 = Math.floor(Math.random() * 50) + 10;
+                                 num2 = Math.floor(Math.random() * 20) + 5;
+                                 op = '+';
                             } else if (difficulty === 'medium') {
                                 num1 = Math.floor(Math.random() * 100) + 50;
                                 num2 = Math.floor(Math.random() * 50) + 20;
@@ -783,7 +709,6 @@
 
             function showGameScreen() {
                 clearTimeout(gameTimer);
-                // This logic was incorrect and has been fixed to make the difficulty progression more reasonable.
                 const difficultyIndex = Math.min(Math.floor((currentLevel - 1) / 5), difficulties.length - 1);
                 const difficulty = difficulties[difficultyIndex];
                 
@@ -804,7 +729,7 @@
 
                 gameContent.innerHTML = `
                     <h2 class="text-3xl font-bold mb-4 text-[#CB4B16]">${gameData.title}</h2>
-                    <p class="text-xl mb-6 text-[#657B83]">Level: ${currentLevel} | Score: ${score}</p>
+                    <p class="text-xl mb-6 text-[#657B83]">Level: ${currentLevel} | Score: ${sessionScore}</p>
                     <div class="bg-white p-8 rounded-lg shadow-inner w-full">
                         <p class="text-4xl font-bold mb-6 text-[#586E75]">${question}</p>
                         ${currentSubject !== 'science' ? `
@@ -835,17 +760,16 @@
                 }
             }
             
-            async function handleSubmitAnswer(submittedAnswer, correctAnswer) {
+            function handleSubmitAnswer(submittedAnswer, correctAnswer) {
                 const feedback = document.getElementById('feedback-message');
                 const isCorrect = currentSubject === 'vocabulary' ? submittedAnswer.toUpperCase() === correctAnswer.toUpperCase() : submittedAnswer === correctAnswer;
 
                 if (isCorrect) {
-                    score++;
+                    sessionScore++;
                     feedback.textContent = 'Correct!';
                     feedback.style.color = '#859900';
                     currentLevel++;
-                    await updateProgress(currentSubject, currentLevel);
-                    await updateLeaderboard(score);
+                    updateProgress(currentSubject, currentLevel);
                 } else {
                     feedback.textContent = `Oops! The correct answer was ${correctAnswer}.`;
                     feedback.style.color = '#DC322F';
@@ -862,11 +786,11 @@
             });
 
             document.querySelectorAll('.select-game').forEach(card => {
-                card.addEventListener('click', async () => {
+                card.addEventListener('click', () => {
                     currentSubject = card.dataset.subject;
-                    const progress = await getProgress();
+                    const progress = getProgress();
                     currentLevel = progress.levels[`${currentGrade}_${currentSubject}`] || 1;
-                    score = 0; 
+                    sessionScore = 0; 
                     showGameScreen();
                     gameModal.classList.remove('hidden');
                     gameModal.classList.add('flex');
@@ -874,6 +798,7 @@
             });
 
             closeModalBtn.addEventListener('click', () => {
+                updateHighScore();
                 gameModal.classList.add('hidden');
                 gameModal.classList.remove('flex');
                 clearTimeout(gameTimer);
@@ -882,7 +807,7 @@
             dailyBonusBtn.addEventListener('click', claimDailyBonus);
             
             leaderboardBtn.addEventListener('click', () => {
-                fetchLeaderboard();
+                showHighScores();
                 gradeSelection.classList.add('hidden');
                 leaderboardView.classList.remove('hidden');
             });
@@ -897,69 +822,30 @@
                 gradeSelection.classList.remove('hidden');
             });
 
-            window.addEventListener('load', () => {
-                const offlineIndicator = document.getElementById('offline-indicator');
-                const indicatorText = offlineIndicator.querySelector('span');
+            // --- Initial Setup ---
+            setupUser();
+            checkDailyBonus();
 
-                const showIndicator = (message, color) => {
-                    indicatorText.textContent = message;
-                    offlineIndicator.style.backgroundColor = color;
-                    offlineIndicator.style.opacity = '1';
-                    setTimeout(() => {
-                        offlineIndicator.style.opacity = '0';
-                    }, 3000);
-                };
-
-                if ('serviceWorker' in navigator) {
-                    const serviceWorkerScript = `
-                        const CACHE_NAME = 'learnsphere-cache-v2';
-                        // --- DEPLOYMENT FIX 2: Correct Service Worker Cache Path ---
-                        // Using './' instead of '/' ensures the service worker caches the correct
-                        // entry point, even when deployed in a subdirectory like on GitHub Pages.
-                        const urlsToCache = [
-                            './',
-                        ];
-
-                        self.addEventListener('install', event => {
-                            event.waitUntil(
-                                caches.open(CACHE_NAME)
-                                    .then(cache => {
-                                        return cache.addAll(urlsToCache);
-                                    })
-                            );
-                        });
-
-                        self.addEventListener('fetch', event => {
-                            event.respondWith(
-                                caches.match(event.request)
-                                    .then(response => {
-                                        if (response) {
-                                            return response;
-                                        }
-                                        return fetch(event.request);
-                                    })
-                            );
-                        });
-                    `;
-                    
-                    const blob = new Blob([serviceWorkerScript], { type: 'application/javascript' });
-                    const swUrl = URL.createObjectURL(blob);
-
-                    navigator.serviceWorker.register(swUrl)
-                        .then(registration => {
-                            console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                            showIndicator('App is ready for offline use!', '#859900');
-                        }).catch(err => {
-                            console.log('ServiceWorker registration failed: ', err);
-                            showIndicator('Offline mode failed to start.', '#DC322F');
-                        });
-                } else {
-                    showIndicator('Offline mode not supported.', '#CB4B16');
-                }
-            });
-        })();
+            // Service Worker for offline capability
+            if ('serviceWorker' in navigator) {
+                const serviceWorkerScript = `
+                    const CACHE_NAME = 'learnsphere-cache-v3';
+                    const urlsToCache = [ './' ];
+                    self.addEventListener('install', event => {
+                        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
+                    });
+                    self.addEventListener('fetch', event => {
+                        event.respondWith(caches.match(event.request).then(response => response || fetch(event.request)));
+                    });
+                `;
+                const blob = new Blob([serviceWorkerScript], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl)
+                    .then(() => console.log('ServiceWorker registration successful.'))
+                    .catch(err => console.log('ServiceWorker registration failed: ', err));
+            }
+        });
     </script>
 </body>
 </html>
-
 
