@@ -56,16 +56,21 @@
         .hidden {
             display: none;
         }
-        #offline-indicator {
+        #notification {
             position: fixed;
-            bottom: 10px;
-            right: 10px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.875rem;
-            font-weight: 500;
+            top: 20px;
+            right: 20px;
+            background-color: #268BD2;
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             z-index: 1000;
-            transition: opacity 0.5s ease-in-out;
+            transform: translateX(calc(100% + 20px));
+            transition: transform 0.5s ease-in-out;
+        }
+        #notification.show {
+            transform: translateX(0);
         }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -171,9 +176,7 @@
         </div>
     </div>
     
-    <div id="offline-indicator" class="bg-gray-400 text-white opacity-0">
-        <span>Connecting...</span>
-    </div>
+    <div id="notification"></div>
 
     <script type="module">
         // --- NOTE: This app is now backend-less. All data is saved in your browser's local storage. ---
@@ -191,6 +194,7 @@
             const backFromLeaderboardBtn = document.getElementById('back-from-leaderboard');
             const backToGradesBtn = document.getElementById('back-to-grades-btn');
             const userInfoEl = document.getElementById('user-info');
+            const notificationEl = document.getElementById('notification');
             
             let userId;
             let currentGrade;
@@ -199,6 +203,14 @@
             let currentLevel = 1;
             let gameTimer;
             let totalScore = 0;
+
+            function showNotification(message) {
+                notificationEl.textContent = message;
+                notificationEl.classList.add('show');
+                setTimeout(() => {
+                    notificationEl.classList.remove('show');
+                }, 3000);
+            }
             
             function setupUser() {
                 let storedUserId = localStorage.getItem('learnSphereUserId');
@@ -243,7 +255,7 @@
                 localStorage.setItem('learnSphereTotalScore', totalScore);
                 dailyBonusBtn.textContent = 'Bonus Claimed Today!';
                 dailyBonusBtn.disabled = true;
-                alert('You received 10 bonus points!');
+                showNotification('You received 10 bonus points!');
             }
             
             function updateHighScore() {
